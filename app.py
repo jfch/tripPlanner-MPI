@@ -13,11 +13,11 @@ import os
 import requests
 import google_coordinates
 import json
-import uber
-from lyft import lyft
-from tsp import TSP
-#import Trips
-lyft = lyft()
+
+import googlemaps
+import commands
+
+
 
 app = Flask(__name__)
 
@@ -86,138 +86,109 @@ def update_locationID(location_id):
 
 @app.route('/locations/<location_id>',methods=['DELETE'])
 def delete_location(location_id):
-	db.session.delete(Location_API.query.get(location_id))
-        db.session.commit()
-        return json.dumps({}),204
+    db.session.delete(Location_API.query.get(location_id))
+    db.session.commit()
+    return json.dumps({}),204
 
 @app.route('/trips', methods=['POST'])
 def trip_estimator():
-	#lyft = lyft()
-	global lyft
-	data1 = json.loads(request.data)
-	startID = data1['start']
-	locationsID = data1['others']
+
+    data1 = json.loads(request.data)
+    startID = data1['start']
+    locationsID = data1['others']
 
 
-	alllocations=[]
-	alllocations.append(int(startID))
-	for i in range(len(locationsID)):
-		alllocations.append(int(locationsID[i]))
-	#print alllocations
+    alllocations=[]
+    alllocations.append(int(startID))
+    for i in range(len(locationsID)):
+            alllocations.append(int(locationsID[i]))
 
-	#start_location = Location_API.query.filter_by(id=start).first_or_404()
-	#alllocations.append(start_location.id)
-	#end_location = Location_API.query.filter_by(id=start).first_or_404()
+    location = []
+    location_coop = []
+    for i in range(len(alllocations)):
+            location.append(Location_API.query.filter_by(id=alllocations[i]).first_or_404())
+            location_coop.append((location[i].lat , location[i].lng ))
 
-	#create a dictionary for mapping the matrix numbers to the locatcation ids
-	location = []
-	for i in range(len(alllocations)):
-		location.append(Location_API.query.filter_by(id=alllocations[i]).first_or_404())
-		#print location[i]
-		#print location[i].lat
-		#alllocations.append(location[i].id)
+    matrixlength = len(alllocations)
 
-	matrixlength = len(alllocations)
-	Ubermatrix=[[0 for row in range(0,matrixlength)] for col in range(0,matrixlength)]
-	for i in range(matrixlength):
-		for j in range(matrixlength):
-			if i == j:
-				Ubermatrix[i][j] = 0
-			else:
-				Ubermatrix[i][j]= uber.uber_price(location[i].lat, location[i].lng, location[j].lat, location[j].lng)
-	        #print Ubermatrix[i][j]
+    gmaps = googlemaps.Client(key='AIzaSyCETh6MmyaZGznIQ-GBNKq9dGAA3N3IZPI')
+    distanceMatrix = [[0 for row in range(0,matrixlength)] for col in range(0,matrixlength)]
+    durationMatrix = [[0 for row in range(0,matrixlength)] for col in range(0,matrixlength)]
+    
+    startIndex = 0
+    while(startIndex < matrixlength):
+            matrix = gmaps.distance_matrix(location_coop[startIndex : min((startIndex + 5), matrixlength)], location_coop)
+            
+            for i in range(len(matrix['rows'])):
+                    for j in range(len(matrix['rows'][i]['elements'])):
+                            durationMatrix[startIndex + i][j] = matrix['rows'][i]['elements'][j]['duration']['value']/60.0
+                            distanceMatrix[startIndex + i][j] = matrix['rows'][i]['elements'][j]['distance']['value']/1000.0
+            startIndex += 5
+              
+    durMatrixFile = "durMatrix.txt"
+    disMatrixFile = "disMatrix.txt"
+    
+    fmatrixDur = open(durMatrixFile, "wb")
+    fmatrixDis = open(disMatrixFile, "wb")
+    fmatrixDur.write(str(matrixlength) + "\n")
+    fmatrixDis.write(str(matrixlength) + "\n")  
+    for i in range(len(distanceMatrix)):
+        for j in range(len(distanceMatrix)):
+            fmatrixDur.write(str(durationMatrix[i][j])+ " ")
+            fmatrixDis.write(str(distanceMatrix[i][j])+ " ")
+        fmatrixDur.write("\n")
+        fmatrixDis.write("\n")
+    fmatrixDur.close()    
+    fmatrixDis.close()
 
-	#x = uber.uber_price(location[0].lat, location[0].lng, location[0].lat, location[0].lng)
-	#print x
-	#lyft = lyft()
-	lyftmatrix=[[0 for row in range(0,matrixlength)] for col in range(0,matrixlength)]
-	for i in range(matrixlength):
-		for j in range(matrixlength):
-			if i == j:
-				lyftmatrix[i][j] = 0
-			else:
-				lyftmatrix[i][j]= lyft.lyft_price(location[i].lat, location[i].lng, location[j].lat, location[j].lng)
-	        #print lyftmatrix[i][j]
-	#for i in range(matrixlength):
-	#	for j in range(matrixlength):
-	#		print Ubermatrix[i][j]
-	bestroute_uber = TSP(Ubermatrix).getFinalCityFlow()
-	bestroute_lyft = TSP(lyftmatrix).getFinalCityFlow()
+    a,outputDis = commands.getstatusoutput('./tsp/tsp ' + disMatrixFile)
+    a,outputDur = commands.getstatusoutput('./tsp/tsp ' + durMatrixFile)
+    print ("shortest distance\n"+outputDis)
+    print ("shortest time\n" + outputDur)
 
-	#print bestroute_uber
-	#print bestroute_lyft
+    resultDis = outputDis.split("\n")
+    bestroute_distance = (resultDis[1].split(":"))[1].strip().split(" ")
 
-	Uber_bestroute_prices = []
-	Uber_bestroute_distance = []
-	Uber_bestroute_duration = []
+    resultDur = outputDur.split("\n")
+    bestroute_duration = (resultDur[1].split(":"))[1].strip().split(" ")
 
-	uber_best_route = bestroute_uber.split('->')
-	#print uber_best_route
-	uber_best_route_locations = []
-	for i in range(0,len(uber_best_route)-1):
-		#print uber_best_route[i]
-		uber_best_route_locations.append(str(location[int(uber_best_route[i])].name))
-		Uber_bestroute_prices.append(uber.uber_price(location[int(uber_best_route[i])].lat, location[int(uber_best_route[i])].lng, location[int(uber_best_route[i+1])].lat, location[int(uber_best_route[i+1])].lng))
-		Uber_bestroute_distance.append(uber.uber_distance(location[int(uber_best_route[i])].lat, location[int(uber_best_route[i])].lng, location[int(uber_best_route[i+1])].lat, location[int(uber_best_route[i+1])].lng))
-		Uber_bestroute_duration.append(uber.uber_duration(location[int(uber_best_route[i])].lat, location[int(uber_best_route[i])].lng, location[int(uber_best_route[i+1])].lat, location[int(uber_best_route[i+1])].lng))
+    distance_best_route_locations = []
+    distance_bestroute_distance = resultDis[2].split(":")[1]
+    distance_bestroute_duration = 0.0
+    duration_best_route_locations = []
+    duration_bestroute_distance = 0.0
+    duration_bestroute_duration = resultDur[2].split(":")[1]
+          
+    for i in range(0,len(bestroute_distance)-1):
+		distance_best_route_locations.append(str(location[int(bestroute_distance[i])].name))
+	#	distance_bestroute_distance += distanceMatrix[int(bestroute_distance[i])][int(bestroute_distance[i+1])]
+		distance_bestroute_duration += durationMatrix[int(bestroute_distance[i])][int(bestroute_distance[i+1])]
 
-	#print Uber_bestroute_prices      
-	uber_price_total = sum(Uber_bestroute_prices)
-	uber_distance_total = sum(Uber_bestroute_distance)
-	uber_duration_total = sum(Uber_bestroute_duration)
-	#print uber_price_total
+		duration_best_route_locations.append(str(location[int(bestroute_duration[i])].name))
+		duration_bestroute_distance += distanceMatrix[int(bestroute_duration[i])][int(bestroute_duration[i+1])]
+	#	duration_bestroute_duration += durationMatrix[int(bestroute_duration[i])][int(bestroute_duration[i+1])]
 
-	lyft_bestroute_prices = []
-	lyft_bestroute_distance = []
-	lyft_bestroute_duration = []
+	
+    providers = []
+    start_location = distance_best_route_locations.pop(0)
+    duration_best_route_locations.pop(0)
+##
+##	uber_response = {"name" : "Uber","total_costs_by_cheapest_car_type" : uber_price_total, "currency_code": "USD", "total_duration" : uber_duration_total, "duration_unit": "minute",  "total_distance" : uber_distance_total, "distance_unit": "mile"}
+##	lyft_response = {"name" : "Lyft","total_costs_by_cheapest_car_type" : lyft_price_total, "currency_code": "USD", "total_duration" : lyft_duration_total, "duration_unit": "minute",  "total_distance" : lyft_distance_total, "distance_unit": "mile"}
+##	 
+##	providers.append(uber_response)
+##	providers.append(lyft_response)
+##
+##	trip_planner_response = {"start" : start_location, "best_route_by_costs" : best_route_by_costs, "providers" : providers, "end" : start_location}
 
-	lyft_best_route = bestroute_lyft.split('->')
-	#print lyft_best_route
-	lyft_best_route_locations = []
-	for i in range(0,len(lyft_best_route)-1):
-		#print lyft_best_route[i]
-		lyft_best_route_locations.append(str(location[int(lyft_best_route[i])].name))
-		lyft_bestroute_prices.append(lyft.lyft_price(location[int(lyft_best_route[i])].lat, location[int(lyft_best_route[i])].lng, location[int(lyft_best_route[i+1])].lat, location[int(lyft_best_route[i+1])].lng))
-		lyft_bestroute_distance.append(lyft.lyft_distance(location[int(lyft_best_route[i])].lat, location[int(lyft_best_route[i])].lng, location[int(lyft_best_route[i+1])].lat, location[int(lyft_best_route[i+1])].lng))
-		lyft_bestroute_duration.append(lyft.lyft_duration(location[int(lyft_best_route[i])].lat, location[int(lyft_best_route[i])].lng, location[int(lyft_best_route[i+1])].lat, location[int(lyft_best_route[i+1])].lng))
-
-	#print lyft_bestroute_prices      
-
-	lyft_price_total = sum(lyft_bestroute_prices)
-	lyft_distance_total = sum(lyft_bestroute_distance)
-	lyft_duration_total = sum(lyft_bestroute_duration)
-	#print lyft_price_total
-
-	# "best_route_by_costs"
-
-	uber_best_route_locations.pop(0)
-	lyft_best_route_locations.pop(0)
-	if lyft_price_total < uber_price_total:
-		best_route_by_costs = lyft_best_route_locations
-		start_location = str(location[int(lyft_best_route[0])].name)
-	else:
-		best_route_by_costs = lyft_best_route_locations
-		start_location = str(location[int(uber_best_route[0])].name)
-	#print best_route_by_costs
-
-	#"providers"
-
-	providers = []
-
-	uber_response = {"name" : "Uber","total_costs_by_cheapest_car_type" : uber_price_total, "currency_code": "USD", "total_duration" : uber_duration_total, "duration_unit": "minute",  "total_distance" : uber_distance_total, "distance_unit": "mile"}
-	lyft_response = {"name" : "Lyft","total_costs_by_cheapest_car_type" : lyft_price_total, "currency_code": "USD", "total_duration" : lyft_duration_total, "duration_unit": "minute",  "total_distance" : lyft_distance_total, "distance_unit": "mile"}
+    distance_response = {"name" : "Distance", "best_route" : distance_best_route_locations, "total_duration" : distance_bestroute_duration, "duration_unit": "minute",  "total_distance" : distance_bestroute_distance, "distance_unit": "km"}
+    duration_response = {"name" : "Duration", "best_route" : duration_best_route_locations, "total_duration" : duration_bestroute_duration, "duration_unit": "minute",  "total_distance" : duration_bestroute_distance, "distance_unit": "km"}
 	 
-	providers.append(uber_response)
-	providers.append(lyft_response)
+    providers.append(distance_response)
+    providers.append(duration_response)
 
-	trip_planner_response = {"start" : start_location, "best_route_by_costs" : best_route_by_costs, "providers" : providers, "end" : start_location}
-	return json.dumps(trip_planner_response)
-
-
-
-
-
-
+    trip_planner_response = {"start" : start_location, "providers" : providers, "end" : start_location}
+    return json.dumps(trip_planner_response)
 
 
 @app.route('/createdb')

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+: ${ONCILLA_PROJECT_DIRECTORY:?"ONCILLA_PROJECT_DIRECTORY must be set to the project directory you want to build the manual and Sphinx documentation!"}
+: ${ONCILLA_PROJECT_NAME:?"ONCILLA_PROJECT_NAME must be set to the name you want to use across the manual and Sphinx documentation files!"}
+: ${ONCILLA_PROJECT_PACKAGES:?"ONCILLA_PROJECT_PACKAGES must be set to the packages you want to build the Sphinx documentation!"}
+
+echo -------------------------------------------------------------------------------
+echo $ONCILLA_PROJECT_NAME - Documentation Build
+echo -------------------------------------------------------------------------------
+export ONCILLA_DIRECTORY=$(cd $( dirname "${BASH_SOURCE[0]}" )/../oncilla; pwd)
+export HELP_DIRECTORY=$ONCILLA_PROJECT_DIRECTORY/docs/help
+export SPHINX_DIRECTORY=$ONCILLA_PROJECT_DIRECTORY/docs/sphinx
+
+# Manual build.
+echo -------------------------------------------------------------------------------
+echo Manual Build - Begin
+echo -------------------------------------------------------------------------------
+python $ONCILLA_DIRECTORY/reStructuredTextToHtml.py --input "$HELP_DIRECTORY/${ONCILLA_PROJECT_NAME}_Manual.rst" --output "$HELP_DIRECTORY/${ONCILLA_PROJECT_NAME}_Manual.html" --cssFile "${ONCILLA_PROJECT_MANUAL_CSS_FILE}"
+echo -------------------------------------------------------------------------------
+echo Manual Build - End
+echo -------------------------------------------------------------------------------
+
+# Sphinx documentation build.
+echo -------------------------------------------------------------------------------
+echo Sphinx Documentation Build - Begin
+echo -------------------------------------------------------------------------------
+mkdir -p $SPHINX_DIRECTORY/source/resources/pages/api
+python $ONCILLA_DIRECTORY/sliceReStructuredText.py --input "$HELP_DIRECTORY/${ONCILLA_PROJECT_NAME}_Manual.rst" --output "$SPHINX_DIRECTORY/source/resources/pages"
+python $ONCILLA_DIRECTORY/sliceReStructuredText.py --input "$ONCILLA_PROJECT_DIRECTORY/CHANGES.rst" --output "$SPHINX_DIRECTORY/source/resources/pages"
+python $ONCILLA_DIRECTORY/buildTocTree.py --title "$ONCILLA_PROJECT_NAME" --input "$SPHINX_DIRECTORY/source/resources/pages/tocTree.rst" --output "$SPHINX_DIRECTORY/source/index.rst" --contentDirectory "$SPHINX_DIRECTORY/source/resources/pages"
+rm -rf $SPHINX_DIRECTORY/build
+rm -rf $SPHINX_DIRECTORY/source/resources/packages
+rm $SPHINX_DIRECTORY/source/resources/pages/api/*
+rm "$SPHINX_DIRECTORY/source/resources/pages/tocTree.rst"
+python $ONCILLA_DIRECTORY/buildApi.py --packages $ONCILLA_PROJECT_PACKAGES --input "$SPHINX_DIRECTORY/source/resources/packages" --output "$SPHINX_DIRECTORY/source/resources/pages/api"  --sanitizer "${ONCILLA_PROJECT_SANITIZER}" --excludedModules $ONCILLA_PROJECT_EXCLUDED_MODULES
+export PYTHONPATH=$SPHINX_DIRECTORY/source/resources/packages
+sphinx-build -b html -d $SPHINX_DIRECTORY/build/doctrees $SPHINX_DIRECTORY/source $SPHINX_DIRECTORY/build/html
+echo -------------------------------------------------------------------------------
+echo Sphinx Documentation Build - End
+echo -------------------------------------------------------------------------------

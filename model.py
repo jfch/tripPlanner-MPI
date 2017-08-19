@@ -1,7 +1,8 @@
 from flask import Flask
-from flask.ext.sqlalchemy import SQLAlchemy
-from flask.ext.script import Manager
-from flask.ext.migrate import Migrate, MigrateCommand
+from flask_sqlalchemy import SQLAlchemy
+from flask_script import Manager
+from flask_migrate import Migrate, MigrateCommand
+
 
 
 
@@ -11,9 +12,10 @@ DATABASE = 'newtest'
 PASSWORD = ''
 USER = 'root'
 HOSTNAME = 'localhost'
+SQLALCHEMY_TRACK_MODIFICATIONS = False
 
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://%s:%s@%s/%s'%(USER, PASSWORD, HOSTNAME, DATABASE)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://%s:%s@%s/%s'%(USER, PASSWORD, HOSTNAME, DATABASE)
 db = SQLAlchemy(app)
 
 # Database migration command line
